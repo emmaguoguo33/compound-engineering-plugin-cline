@@ -1,0 +1,164 @@
+# 复利候选自动识别配置
+# Compound Interest Candidate Auto-Detection Config
+# 
+# 使用智能策略 + 保守兜底的混合方案
+
+version: "1.0"
+
+# 评分阈值
+thresholds:
+  auto_record: 8      # >= 8分：自动记录，无需确认
+  prompt_confirm: 5   # 5-7分：收工时提示确认
+  skip: 4            # < 5分：静默跳过
+
+# 评分规则（满分10分）
+scoring_rules:
+  
+  # === 错误-修复模式 (高权重) ===
+  error_fix_pattern:
+    description: "明确的错误→修复循环"
+    indicators:
+      - pattern: "error|exception|failed"
+        source: "tool_output"
+      - pattern: "fixed|resolved|works now"
+        source: "conversation"
+    base_score: 6
+    conditions:
+      - if: "fix_verified"
+        add: 2
+      - if: "was_non_obvious"
+        add: 2
+
+  # === 重试模式 (中高权重) ===
+  retry_pattern:
+    description: "多次尝试后成功"
+    indicators:
+      - check: "retry_count >= 3"
+    base_score: 5
+    conditions:
+      - if: "retry_count >= 5"
+        add: 2
+      - if: "final_approach_different"
+        add: 2
+      - if: "learned_new_technique"
+        add: 1
+
+  # === 时间异常 (中权重) ===
+  time_anomaly:
+    description: "耗时超过预期"
+    indicators:
+      - check: "actual_time > expected_time * 3"
+    base_score: 4
+    conditions:
+      - if: "actual_time > expected_time * 5"
+        add: 2
+      - if: "actual_time > expected_time * 10"
+        add: 2
+      - if: "bottleneck_identified"
+        add: 1
+
+  # === 文档/搜索依赖 (中权重) ===
+  research_required:
+    description: "需要大量查阅才能解决"
+    indicators:
+      - check: "search_count >= 3"
+      - check: "doc_reads >= 5"
+    base_score: 3
+    conditions:
+      - if: "search_count >= 5"
+        add: 1
+      - if: "found_useful_resource"
+        add: 2
+      - if: "synthesized_solution"
+        add: 2
+
+  # === 工具调用异常 (中权重) ===
+  tool_anomaly:
+    description: "工具调用模式异常"
+    indicators:
+      - check: "same_tool_consecutive >= 3"
+      - check: "tool_error_then_success"
+    base_score: 4
+    conditions:
+      - if: "tried_alternative_approach"
+        add: 2
+      - if: "found_workaround"
+        add: 2
+
+  # === 代码回滚 (高权重) ===
+  rollback_pattern:
+    description: "代码/方案回滚后成功"
+    indicators:
+      - pattern: "git reset|git checkout|revert"
+        source: "commands"
+      - pattern: "let's try a different|back to|actually"
+        source: "conversation"
+    base_score: 5
+    conditions:
+      - if: "rollback_count >= 2"
+        add: 2
+      - if: "final_approach_recorded"
+        add: 1
+
+  # === 配置变更 (中权重) ===
+  config_discovery:
+    description: "发现重要配置项"
+    indicators:
+      - pattern: "config|settings|env|\.yaml|\.json"
+        source: "modified_files"
+    base_score: 3
+    conditions:
+      - if: "was_undocumented"
+        add: 3
+      - if: "affects_multiple_components"
+        add: 2
+
+  # === 依赖问题 (中高权重) ===
+  dependency_issue:
+    description: "依赖版本/兼容性问题"
+    indicators:
+      - pattern: "version|dependency|package|npm|pip|gem"
+        source: "conversation"
+      - pattern: "incompatible|conflict|mismatch"
+        source: "tool_output"
+    base_score: 5
+    conditions:
+      - if: "version_pinned"
+        add: 2
+      - if: "workaround_documented"
+        add: 2
+
+# 自动分类规则
+auto_categorization:
+  performance_issue:
+    keywords: ["slow", "timeout", "memory", "N+1", "optimize"]
+    suggested_category: "performance-issues"
+    trigger_agents: ["performance-oracle"]
+  
+  security_issue:
+    keywords: ["auth", "permission", "token", "vulnerability", "XSS", "injection"]
+    suggested_category: "security-issues"
+    trigger_agents: ["security-sentinel"]
+  
+  database_issue:
+    keywords: ["migration", "query", "index", "deadlock", "transaction"]
+    suggested_category: "database-issues"
+    trigger_agents: ["data-integrity-guardian"]
+  
+  build_error:
+    keywords: ["build", "compile", "bundle", "webpack", "typescript"]
+    suggested_category: "build-errors"
+  
+  test_failure:
+    keywords: ["test failed", "assertion", "expect", "spec"]
+    suggested_category: "test-failures"
+
+# 复利候选队列（运行时填充）
+runtime_candidates: []
+
+# 收工时回顾设置
+review_settings:
+  show_high_confidence: true    # 显示高分候选
+  prompt_medium_confidence: true # 中分需确认
+  batch_confirm: true           # 批量确认模式
+  max_display: 5                # 最多显示5个候选
